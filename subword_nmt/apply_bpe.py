@@ -66,16 +66,19 @@ class BPE(object):
         self.glossaries_regex = re.compile('^({})$'.format('|'.join(glossaries))) if glossaries else None
 
         self.cache = {}
-
+    
+    
+    # 
     def process_line(self, line, dropout=0):
         """segment line, dealing with leading and trailing whitespace"""
-
+        "首尾空格？？？"
         out = ""
 
         leading_whitespace = len(line)-len(line.lstrip('\r\n '))
         if leading_whitespace:
             out += line[:leading_whitespace]
-
+        
+        # key
         out += self.segment(line, dropout)
 
         trailing_whitespace = len(line)-len(line.rstrip('\r\n '))
@@ -84,6 +87,7 @@ class BPE(object):
 
         return out
 
+    # 意义不明的分段
     def segment(self, sentence, dropout=0):
         """segment single sentence (whitespace-tokenized string) with BPE encoding"""
         segments = self.segment_tokens(sentence.strip('\r\n ').split(' '), dropout)
@@ -96,6 +100,7 @@ class BPE(object):
             # eliminate double spaces
             if not word:
                 continue
+            
             new_word = [out for segment in self._isolate_glossaries(word)
                         for out in encode(segment,
                                           self.bpe_codes,
@@ -106,7 +111,7 @@ class BPE(object):
                                           self.cache,
                                           self.glossaries_regex,
                                           dropout)]
-
+            # 末尾有多余的终止符
             for item in new_word[:-1]:
                 output.append(item + self.separator)
             output.append(new_word[-1])
@@ -196,8 +201,13 @@ def encode(orig, bpe_codes, bpe_codes_reverse, vocab, separator, version, cache,
     while len(word) > 1:
 
         # get list of symbol pairs; optionally apply dropout
+        # 但是这次dropout的 下个循环还是可能被合并
+        # drop out实现可能有问题
         pairs = [(bpe_codes[pair],i,pair) for (i,pair) in enumerate(zip(word, word[1:])) if (not dropout or random.random() > dropout) and pair in bpe_codes]
-
+        
+        # 按pair merge？
+        # 就是个贪心merge
+        # 用vocab 构建一个状态机应该会好很多
         if not pairs:
             break
 
@@ -210,6 +220,8 @@ def encode(orig, bpe_codes, bpe_codes_reverse, vocab, separator, version, cache,
         i = 0
         new_word = []
         bigram = ''.join(bigram)
+        
+        # 处理pair冲突
         for j in positions:
             # merges are invalid if they start before current position. This can happen if there are overlapping pairs: (x x x -> xx x)
             if j < i:

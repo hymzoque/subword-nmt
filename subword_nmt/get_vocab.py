@@ -37,6 +37,8 @@ def create_parser(subparsers=None):
 
     return parser
 
+
+# 写入初始的由空格\n分隔的vocab
 def get_vocab(train_file, vocab_file):
 
     c = Counter()

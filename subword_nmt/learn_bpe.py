@@ -47,14 +47,17 @@ def create_parser(subparsers=None):
         '--output', '-o', type=argparse.FileType('w'), default=sys.stdout,
         metavar='PATH',
         help="Output file for BPE codes (default: standard output)")
-    parser.add_argument(
+    # 总词表 或 新词数量
+    parser.add_argument( 
         '--symbols', '-s', type=int, default=10000,
         help="Create this many new symbols (each representing a character n-gram) (default: %(default)s))")
     parser.add_argument(
         '--min-frequency', type=int, default=2, metavar='FREQ',
         help='Stop if no symbol pair has frequency >= FREQ (default: %(default)s))')
+    # 标志input是个已经train好的vocab
     parser.add_argument('--dict-input', action="store_true",
         help="If set, input file is interpreted as a dictionary where each line contains a word-count pair")
+    # 标志symbols是总体symbols数量，而非新词数量
     parser.add_argument(
         '--total-symbols', '-t', action="store_true",
         help="subtract number of characters from the symbols to be generated (so that '--symbols' becomes an estimate for the total number of symbols needed to encode text).")
@@ -69,6 +72,7 @@ def get_vocabulary(fobj, is_dict=False):
     """
     vocab = Counter()
     for i, line in enumerate(fobj):
+        # 读取train好的词表
         if is_dict:
             try:
                 word, count = line.strip('\r\n ').split(' ')
@@ -140,25 +144,30 @@ def update_pair_statistics(pair, changed, stats, indices):
                 indices[nex][j] += 1
             i += 1
 
-
+# logN 的pair统计
+# 注意到 统计的时候没有考虑单词边界
+# @return stats    pair freq
+#         indices  所有pair的所有index位置
 def get_pair_statistics(vocab):
     """Count frequency of all symbol pairs, and create index"""
 
-    # data structure of pair frequencies
+    # pair frequencies
     stats = defaultdict(int)
 
-    #index from pairs to words
+    # 每个dic记录每个pair的所有index位置，感觉可以优化
     indices = defaultdict(lambda: defaultdict(int))
 
     for i, (word, freq) in enumerate(vocab):
         prev_char = word[0]
         for char in word[1:]:
-            stats[prev_char, char] += freq
+            stats[prev_char, char] += freq #默认带有tuple hash
             indices[prev_char, char][i] += 1
             prev_char = char
 
     return stats, indices
 
+# 返回保存合并pairs的changes, changes是
+# pair : max freq pair
 
 def replace_pair(pair, vocab, indices):
     """Replace all occurrences of a symbol pair ('A', 'B') with a new symbol 'AB'"""
@@ -184,6 +193,7 @@ def replace_pair(pair, vocab, indices):
 
     return changes
 
+# 修剪stats 以避免重新统计
 def prune_stats(stats, big_stats, threshold):
     """Prune statistics dict for efficiency of max()
 
@@ -209,13 +219,21 @@ def learn_bpe(infile, outfile, num_symbols, min_frequency=2, verbose=False, is_d
     outfile.write('#version: 0.2\n')
 
     vocab = get_vocabulary(infile, is_dict)
+    
+    # 拆成char 并且最后一个并上词尾符
+    # 从dict读的vocab也要拆？
     vocab = dict([(tuple(x[:-1])+(x[-1]+'</w>',) ,y) for (x,y) in vocab.items()])
+    # 
     sorted_vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
-
+    
+    
     stats, indices = get_pair_statistics(sorted_vocab)
+    
+    # 和prune有关 
     big_stats = copy.deepcopy(stats)
 
     if total_symbols:
+        # ？
         uniq_char_internal = set()
         uniq_char_final = set()
         for word in vocab:
@@ -225,9 +243,12 @@ def learn_bpe(infile, outfile, num_symbols, min_frequency=2, verbose=False, is_d
         sys.stderr.write('Number of word-internal characters: {0}\n'.format(len(uniq_char_internal)))
         sys.stderr.write('Number of word-final characters: {0}\n'.format(len(uniq_char_final)))
         sys.stderr.write('Reducing number of merge operations by {0}\n'.format(len(uniq_char_internal) + len(uniq_char_final)))
+        
+        # iter time
         num_symbols -= len(uniq_char_internal) + len(uniq_char_final)
 
     # threshold is inspired by Zipfian assumption, but should only affect speed
+    # 初始化为最大频率的 1/10
     threshold = max(stats.values()) / 10
     for i in range(num_symbols):
         if stats:
@@ -248,10 +269,17 @@ def learn_bpe(infile, outfile, num_symbols, min_frequency=2, verbose=False, is_d
 
         if verbose:
             sys.stderr.write('pair {0}: {1} {2} -> {1}{2} (frequency {3})\n'.format(i, most_frequent[0], most_frequent[1], stats[most_frequent]))
+        
+        # 按频率对freq pair来排序写入
+        #
         outfile.write('{0} {1}\n'.format(*most_frequent))
+        # 
         changes = replace_pair(most_frequent, sorted_vocab, indices)
+        #
         update_pair_statistics(most_frequent, changes, stats, indices)
         stats[most_frequent] = 0
+        
+        # 100 波进行一次prune
         if not i % 100:
             prune_stats(stats, big_stats, threshold)
 

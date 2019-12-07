@@ -144,8 +144,7 @@ def update_pair_statistics(pair, changed, stats, indices):
                 indices[nex][j] += 1
             i += 1
 
-# logN 的pair统计
-# 注意到 统计的时候没有考虑单词边界
+# 
 # @return stats    pair freq
 #         indices  所有pair的所有index位置
 def get_pair_statistics(vocab):
@@ -226,7 +225,7 @@ def learn_bpe(infile, outfile, num_symbols, min_frequency=2, verbose=False, is_d
     # 
     sorted_vocab = sorted(vocab.items(), key=lambda x: x[1], reverse=True)
     
-    
+    #word 内统计
     stats, indices = get_pair_statistics(sorted_vocab)
     
     # 和prune有关 
